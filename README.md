@@ -1,6 +1,6 @@
 ### NASS-Crop-Planted-Harvested-Data-Cleaning
 
-Compiled datatsets of various crops' planted and harvested acres from the USDA-National Agricultural Statistics Service (NASS) for later use in small area estimation models with clustering techniques. Linear regression models were built using NASS harvested crop acres in conjunction with either the same data from the Farm Service Agency (FSA) or Risk Management Agency (RMA). 
+Compiled datatsets of corn harvested acres from the USDA-National Agricultural Statistics Service (NASS) for another project's use in small area estimation models with clustering techniques. Linear regression models were built using NASS harvested crop acres in conjunction with either corn harvested acres from the Farm Service Agency (FSA) or Risk Management Agency (RMA). 
 
 ## Description
 
