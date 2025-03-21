@@ -1,0 +1,1511 @@
+---
+title: "Untitled"
+author: "Konnor Payne"
+date: "2024-02-02"
+output: html_document
+---
+```{r Libraries}
+library(tidyverse)
+library(rnassqs)
+library(ggplot2)
+library(dplyr)
+library(readxl)
+```
+
+```{r NASS Key}
+#unique API key to me 
+NASS_API_KEY="21D33C37-8271-3CDA-9341-84C80CB3DA1B"
+nassqs_auth(key=NASS_API_KEY)
+```
+
+practice 
+```{r}
+nassqs_param_values(param = "state_alpha" , 
+                    commodity_desc = "SWEET POTATOES" , 
+                    agg_level_desc = "COUNTY" , 
+                    unit_desc = "ACRES" , 
+                    domain_desc = "TOTAL" , 
+                    statisticcat_desc = "AREA HARVESTED" , 
+                    prodn_practice_desc = "ALL PRODUCTION PRACTICES")
+```
+
+County level dataset of corn production in Iowa since 2000
+
+```{r County Dataset}
+#setting up query by using 
+county_corn_param=list(commodity_desc="CORN",
+                       agg_level_desc="COUNTY",
+                       state_alpha="IA",
+                       statisticcat_desc ="AREA HARVESTED",
+                       domain_desc="TOTAL",
+                       unit_desc="ACRES",
+                       short_desc="CORN, GRAIN - ACRES HARVESTED")
+#commodity_desc= the desired item to investigate
+#agg_level = geographic level of agriculture surveys 
+#state_alpha = the desired state code 
+#statisticcat_desc = topic of measurement of crop 
+#domain_desc = type of measurement of crop 
+#prodn_practice_desc = the production practice for that crop 
+#unit_desc = units of query
+
+#applying parameters and retrieving dataset
+county_corn_raw=nassqs(county_corn_param)
+#only keeping data collected from survey and removing data that does not specify county name 
+county_survey=filter(county_corn_raw, source_desc=="SURVEY" & county_name !="OTHER (COMBINED) COUNTIES")
+#check that the value column is numeric and not character 
+class(county_survey$Value)
+#check that the year column is numeric and not character 
+class(county_survey$year)
+#change year to numeric data 
+county_mutate=mutate(county_survey, year_new=as.numeric(year))
+#checking new column is numeric
+class(county_mutate$year_new)
+#keep only the relevant parameters 
+county_min=select(county_mutate, county_code, source_desc, short_desc, unit_desc, commodity_desc, agg_level_desc, state_name, asd_desc, county_name, location_desc, year_new, freq_desc, reference_period_desc, Value, `CV (%)`)
+#keep only years after 2006
+county_clean=subset(county_min, year_new>2006)
+```
+
+state level dataset of corn production in Iowa after 2000
+```{r State Dataset}
+#setting up query
+state_param=list(commodity_desc="CORN",
+                       state_alpha="IA",
+                       statisticcat_desc ="AREA HARVESTED",
+                       domain_desc="TOTAL",
+                       unit_desc="ACRES",
+                       agg_level_desc="STATE",
+                       reference_period_desc="YEAR",
+                       short_desc="CORN, GRAIN - ACRES HARVESTED")
+#appyling parameters and retrieving dataset
+state_raw=nassqs(state_param)
+#only keeping data collected from survey
+state_survey=filter(state_raw, source_desc=="SURVEY")
+#check that the value column is numeric and not character 
+class(state_survey$Value)
+#check that the year column is numeric and not character 
+class(state_survey$year)
+#change year to numeric data 
+state_mutate=mutate(state_survey, year_new=as.numeric(year))
+#checking new column is numeric
+class(state_mutate$year_new)
+#keep only the relevant parameters 
+state_min=select(state_mutate, source_desc, short_desc, unit_desc, commodity_desc, agg_level_desc, state_name, location_desc, year_new, freq_desc, reference_period_desc, Value)
+#keep only years after 2006
+state_clean=subset(state_min, year_new>2006)
+```
+some preliminary analysis of county data to get familiar with it 
+```{r}
+#scatter plot of county data by year 
+ggplot(
+  data=county_clean, 
+  aes(x=year_new, y=Value))+
+  geom_point() + ylab("Production of Corn in Bushels")+xlab("Year") + 
+  ggtitle("Production of Corn in Bushels per Year in Iowa by County Level Model")+
+  geom_smooth(method="lm")
+
+#box plot of county data by year 
+ggplot(data=county_clean, aes(group=year_new, x=year_new, y=Value))+ 
+  geom_boxplot()+
+  xlab("Year")+ ylab("Production of Corn in Bushels")
+
+#I want to make a scatterplot with the sum of each county per year to compare to the state level scatterplot
+#sum of all counties by year
+county_sum=aggregate(county_clean$Value, list(county_clean$year_new), FUN=sum)
+ggplot(
+  data=county_sum, 
+  aes(x=Group.1, y=x))+
+  geom_point() + ylab("Sum of County Production of Corn in Bushels")+xlab("Year") + 
+  ggtitle("Production of Corn in Bushels per Year in Iowa by the Sum County Level Model")+
+  geom_smooth(method="lm")
+```
+some preliminary analysis of state data to get familiar with it 
+```{r}
+#scatter plot of county data by year 
+ggplot(
+  data=state_clean, 
+  aes(x=year_new, y=Value))+
+  geom_point() + ylab("Production of Corn in Bushels")+xlab("Year") + 
+  ggtitle("Production of Corn in Bushels per Year in Iowa by State Level Model")+
+  geom_smooth(method="lm")
+```
+Covariates indicated from paper 
+
+FSA datasets 
+
+Location of files 
+https://www.fsa.usda.gov/news-room/efoia/electronic-reading-room/frequently-requested-information/crop-acreage-data/index
+
+```{r FSA 2023}
+#full dataset
+raw_fsa_2023 <- read_excel("Dr. Wang Project/FSA Data/2023_fsa_acres_web_010224 3.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa and removing all columns except State Code, Planted Acres, Failed Acres, counties
+fsa_2023_corn=subset(raw_fsa_2023, `State Code`=="19" & Crop=="CORN", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+#adding Year to the dataset
+fsa_2023_corn$year=rep(2023, 472)
+```
+
+```{r FSA 2022}
+#full dataset
+raw_fsa_2022 <- read_excel("Dr. Wang Project/FSA Data/2022_fsa_acres_web_010323 2.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+fsa_2022_corn=subset(raw_fsa_2022, `State Code`=="19" & Crop=="CORN", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+#adding Year to the dataset
+fsa_2022_corn$year=rep(2022, 461)
+```
+
+```{r FSA 2021}
+#full dataset
+raw_fsa_2021 <- read_excel("Dr. Wang Project/FSA Data/2021_fsa_acres_web_010322.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+fsa_2021_corn=subset(raw_fsa_2021, `State Code`=="19" & Crop=="CORN", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+#adding Year to the dataset
+fsa_2021_corn$year=rep(2021, 458)
+```
+
+```{r FSA 2020}
+#full dataset
+raw_fsa_2020 <- read_excel("Dr. Wang Project/FSA Data/2020_fsa_acres_web_010521.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+fsa_2020_corn=subset(raw_fsa_2020, `State Code`=="19" & Crop=="CORN", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+#adding Year to the dataset
+fsa_2020_corn$year=rep(2020, 452)
+```
+
+```{r FSA 2019}
+#full dataset
+raw_fsa_2019 <-read_excel("Dr. Wang Project/FSA Data/2019_fsa_acres_web_010220.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+fsa_2019_corn=subset(raw_fsa_2019, `State Code`=="19" & Crop=="CORN", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+#adding Year to the dataset
+fsa_2019_corn$year=rep(2019, 466)
+```
+
+```{r FSA 2018}
+#full dataset
+raw_fsa_2018 <-read_excel("Dr. Wang Project/FSA Data/2018_fsa_acres_012819.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+fsa_2018_corn=subset(raw_fsa_2018, `State Code`=="19" & Crop=="CORN", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+#adding Year to the dataset
+fsa_2018_corn$year=rep(2018, 458)
+```
+
+```{r FSA 2017}
+#full dataset
+raw_fsa_2017 <-read_excel("Dr. Wang Project/FSA Data/2017_fsa_acres_010418.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+fsa_2017_corn=subset(raw_fsa_2017, `State Code`=="19" & Crop=="CORN", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+#adding Year to the dataset
+fsa_2017_corn$year=rep(2017, 434)
+```
+
+```{r FSA 2016}
+#full dataset
+raw_fsa_2016 <-read_excel("Dr. Wang Project/FSA Data/2016_fsa_acres_010417.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+fsa_2016_corn=subset(raw_fsa_2016, `State Code`=="19" & Crop=="CORN", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+#adding Year to the dataset
+fsa_2016_corn$year=rep(2016, 409)
+```
+
+```{r FSA 2015}
+#full dataset
+raw_fsa_2015 <-read_excel("Dr. Wang Project/FSA Data/2015_fsa_acres_01052016.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+fsa_2015_corn=subset(raw_fsa_2015, `State Code`=="19" & Crop=="CORN", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+#adding Year to the dataset
+fsa_2015_corn$year=rep(2015, 401)
+```
+
+```{r FSA 2014}
+#full dataset
+raw_fsa_2014 <-read_excel("Dr. Wang Project/FSA Data/2014_fsa_acres_jan2014.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+fsa_2014_corn=subset(raw_fsa_2014, `State Code`=="19" & Crop=="CORN", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+#adding Year to the dataset
+fsa_2014_corn$year=rep(2014, 420)
+```
+
+```{r FSA 2013}
+#full dataset
+raw_fsa_2013 <-read_excel("Dr. Wang Project/FSA Data/2013_fsa_acres_jan_2014.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+fsa_2013_corn=subset(raw_fsa_2013, `State Code`=="19" & Crop=="CORN", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+#adding Year to the dataset
+fsa_2013_corn$year=rep(2013, 423)
+```
+
+```{r FSA 2012}
+#full dataset
+raw_fsa_2012 <-read_excel("Dr. Wang Project/FSA Data/2012_fsa_acres_jan_2013.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+fsa_2012_corn=subset(raw_fsa_2012, `State Code`=="19" & Crop=="CORN",select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failded Acres`, `County Code`))
+#changing the column names to match the ones above 
+colnames(fsa_2012_corn)=c("State Code", "County", "Crop", "Planted Acres", "Failed Acres", "County Code")
+#adding Year to the dataset
+fsa_2012_corn$year=rep(2012, 413)
+```
+
+I have to recode the column names for the rest of these to match the above ones 
+
+```{r FSA 2011}
+#full dataset
+raw_fsa_2011 <-read_excel("Dr. Wang Project/FSA Data/2011_fsa_acres_detail_jan2012.xlsx", 
+    sheet = "Sheet1")
+#filter to only include corn in Iowa
+fsa_2011_corn=subset(raw_fsa_2011, `State Code`=="19" & `Crop Name`=="CORN", select=c(1,2,4,6,10,12))
+#changing the column names to match the ones above 
+colnames(fsa_2011_corn)=c("State Code", "County Code", "County", "Crop", "Planted Acres", "Failed Acres")
+#adding Year to the dataset
+fsa_2011_corn$year=rep(2011, 362)
+```
+
+```{r FSA 2010}
+#full dataset
+raw_fsa_2010 <-read_excel("Dr. Wang Project/FSA Data/2010_fsa_acres_detail_final_5.xlsx", 
+    sheet = "Sheet1")
+#filter to only include corn in Iowa
+fsa_2010_corn=subset(raw_fsa_2010, `State`=="19" & `Crop Name`=="CORN", select=c(1,2,4,6,10,12))
+#changing the column names to match the ones above 
+colnames(fsa_2010_corn)=c("State Code", "County Code", "County", "Crop", "Planted Acres", "Failed Acres")
+#adding Year to the dataset
+fsa_2010_corn$year=rep(2010, 337)
+```
+
+```{r FSA 2009}
+#full dataset
+raw_fsa_2009 <-read_excel("Dr. Wang Project/FSA Data/2009_fsa_acres_detail_final_7.xlsx", 
+    sheet = "Sheet1")
+#filter to only include corn in Iowa
+fsa_2009_corn=subset(raw_fsa_2009, `State Name`=="IA" & `Crop Name`=="CORN", select=c(1,2,4,6,10,12))
+#changing the column names to match the ones above 
+colnames(fsa_2009_corn)=c("State Code", "County Code", "County", "Crop", "Planted Acres", "Failed Acres")
+#adding Year to the dataset
+fsa_2009_corn$year=rep(2009, 339)
+```
+
+```{r FSA 2023-2009}
+#combines all years into one dataset
+fsa_total=rbind(fsa_2009_corn, fsa_2010_corn, fsa_2011_corn, fsa_2012_corn, fsa_2013_corn, fsa_2014_corn, fsa_2015_corn, fsa_2016_corn, fsa_2017_corn, fsa_2018_corn, fsa_2019_corn, fsa_2020_corn, fsa_2021_corn, fsa_2022_corn, fsa_2023_corn)
+#convert character data to numeric
+fsa_total$`Planted Acres`=as.numeric(fsa_total$`Planted Acres`)
+fsa_total$`Failed Acres`=as.numeric(fsa_total$`Failed Acres`)
+#checking that the columns are numeric
+class(fsa_total$`Planted Acres`)
+class(fsa_total$`Failed Acres`)
+#convert the character columns to all lowercase 
+fsa_total$County=tolower(fsa_total$County)
+fsa_total$Crop=tolower(fsa_total$Crop)
+#take average of every county avg
+avg_county<-fsa_total%>% 
+  group_by(`County Code`, `year`) %>%
+  summarise_at(vars(`Planted Acres`), list(fsa_planted=mean))
+```
+
+Preparing datasets for merging for linear regression modeling 
+```{r}
+#drop other counties from county data 
+county_clean=subset(county_clean, `county_code` < 998)
+#take out east and west pottawatamie counties to get sum
+epott=subset(avg_county, `County Code` ==155) 
+wpott=subset(avg_county, `County Code` ==156)
+pott=rbind(epott, wpott)
+#sum pott by year 
+avg_pott<-pott%>% 
+  group_by(`year`) %>%
+  summarise_at(vars(`fsa_planted`), list(fsa_planted=sum))
+#add county code 
+avg_pott$`County Code`=rep(155, 15)
+#convert it to character data to match the rest of the data frame 
+avg_pott$`County Code`= as.character(avg_pott$`County Code`)
+class(avg_pott$`County Code`)
+#drop original fsa east and west pottawattamie counties
+avg_county=subset(avg_county, !`County Code`== 155)
+avg_county=subset(avg_county, !`County Code` == 156)
+#add in new sum pottawatamie county 
+fsa_clean=rbind(avg_county, avg_pott)
+#county and fsa regression datasets
+county_clean_final=subset(county_clean, year_new>2008)
+table(county_clean_final$year_new)
+table(county_clean_final$county_code)
+table(fsa_clean$year)
+table(fsa_clean$`County Code`)
+#merge the datasets 
+lr_fsa=full_join(fsa_clean, county_clean, by=c("County Code"="county_code", "year"="year_new"))
+```
+linear regression model between survey and FSA 
+```{r}
+#subset of one year - 2016
+fsa_2016=subset(lr_fsa, year==2016)
+#linear model
+lm_fsa_2016=lm(Value~fsa_planted, fsa_2016)
+anova(lm_fsa_2016)
+summary(lm_fsa_2016)
+```
+
+RMA datasets
+
+Location of files
+https://www.rma.usda.gov/SummaryOfBusiness/StateCountyCrop
+
+Data Dictionary 
+https://www.rma.usda.gov/-/media/RMA/SCC-SOB/Type-Practice-Unit/sobtpu_allyears-pdf.ashx?la=en
+
+```{r RMA 2023}
+#import full dataset
+raw_rma_2023=read.delim(file="Dr. Wang Project/RMA Data/SOBSCCTPU23.TXT", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary 
+colnames(raw_rma_2023)=c("Year", "State Code", "State Name", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Abbreviation", "Coverage Type Code", "Coverage Level Percent", "Delivery ID", "Type Code", "Type Name", "Practice Code", "Practice Name", "Unit Structure Code", "Unit Structure Name", "Net Reporting Level Amount", "Reporting Level Type", "Liability Amount", "Total Premium Amount", "Subsidy Amount", "Indemnity Amount", "Loss Ratio", "Endorsed Commodity Reporting Level Amount")
+#subset the dataset to include only information on Iowa and Corn 
+rma_2023_corn=subset(raw_rma_2023, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2022}
+#import full dataset
+raw_rma_2022=read.delim(file="Dr. Wang Project/RMA Data/SOBSCCTPU22.TXT", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary 
+colnames(raw_rma_2022)=c("Year", "State Code", "State Name", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Abbreviation", "Coverage Type Code", "Coverage Level Percent", "Delivery ID", "Type Code", "Type Name", "Practice Code", "Practice Name", "Unit Structure Code", "Unit Structure Name", "Net Reporting Level Amount", "Reporting Level Type", "Liability Amount", "Total Premium Amount", "Subsidy Amount", "Indemnity Amount", "Loss Ratio", "Endorsed Commodity Reporting Level Amount")
+#subset the dataset to include only information on Iowa and Corn 
+rma_2022_corn=subset(raw_rma_2022, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2021}
+#import full dataset
+raw_rma_2021=read.delim(file="Dr. Wang Project/RMA Data/SOBSCCTPU21.TXT", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary 
+colnames(raw_rma_2021)=c("Year", "State Code", "State Name", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Abbreviation", "Coverage Type Code", "Coverage Level Percent", "Delivery ID", "Type Code", "Type Name", "Practice Code", "Practice Name", "Unit Structure Code", "Unit Structure Name", "Net Reporting Level Amount", "Reporting Level Type", "Liability Amount", "Total Premium Amount", "Subsidy Amount", "Indemnity Amount", "Loss Ratio", "Endorsed Commodity Reporting Level Amount")
+#subset the dataset to include only information on Iowa and Corn 
+rma_2021_corn=subset(raw_rma_2021, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2020}
+#import full dataset
+raw_rma_2020=read.delim(file="Dr. Wang Project/RMA Data/SOBSCCTPU20.TXT", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary 
+colnames(raw_rma_2020)=c("Year", "State Code", "State Name", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Abbreviation", "Coverage Type Code", "Coverage Level Percent", "Delivery ID", "Type Code", "Type Name", "Practice Code", "Practice Name", "Unit Structure Code", "Unit Structure Name", "Net Reporting Level Amount", "Reporting Level Type", "Liability Amount", "Total Premium Amount", "Subsidy Amount", "Indemnity Amount", "Loss Ratio", "Endorsed Commodity Reporting Level Amount")
+#subset the dataset to include only information on Iowa and Corn 
+rma_2020_corn=subset(raw_rma_2020, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2019}
+#import full dataset
+raw_rma_2019=read.delim(file="Dr. Wang Project/RMA Data/SOBSCCTPU19.TXT", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary 
+colnames(raw_rma_2019)=c("Year", "State Code", "State Name", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Abbreviation", "Coverage Type Code", "Coverage Level Percent", "Delivery ID", "Type Code", "Type Name", "Practice Code", "Practice Name", "Unit Structure Code", "Unit Structure Name", "Net Reporting Level Amount", "Reporting Level Type", "Liability Amount", "Total Premium Amount", "Subsidy Amount", "Indemnity Amount", "Loss Ratio", "Endorsed Commodity Reporting Level Amount")
+#subset the dataset to include only information on Iowa and Corn 
+rma_2019_corn=subset(raw_rma_2019, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2018}
+#import full dataset
+raw_rma_2018=read.delim(file="Dr. Wang Project/RMA Data/SOBSCCTPU18.TXT", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary 
+colnames(raw_rma_2018)=c("Year", "State Code", "State Name", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Abbreviation", "Coverage Type Code", "Coverage Level Percent", "Delivery ID", "Type Code", "Type Name", "Practice Code", "Practice Name", "Unit Structure Code", "Unit Structure Name", "Net Reporting Level Amount", "Reporting Level Type", "Liability Amount", "Total Premium Amount", "Subsidy Amount", "Indemnity Amount", "Loss Ratio", "Endorsed Commodity Reporting Level Amount")
+#subset the dataset to include only information on Iowa and Corn 
+rma_2018_corn=subset(raw_rma_2018, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2017}
+#import full dataset
+raw_rma_2017=read.delim(file="Dr. Wang Project/RMA Data/SOBSCCTPU17.TXT", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary 
+colnames(raw_rma_2017)=c("Year", "State Code", "State Name", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Abbreviation", "Coverage Type Code", "Coverage Level Percent", "Delivery ID", "Type Code", "Type Name", "Practice Code", "Practice Name", "Unit Structure Code", "Unit Structure Name", "Net Reporting Level Amount", "Reporting Level Type", "Liability Amount", "Total Premium Amount", "Subsidy Amount", "Indemnity Amount", "Loss Ratio", "Endorsed Commodity Reporting Level Amount")
+#subset the dataset to include only information on Iowa and Corn 
+rma_2017_corn=subset(raw_rma_2017, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2016}
+#import full dataset
+raw_rma_2016=read.delim(file="Dr. Wang Project/RMA Data/SOBSCCTPU16.TXT", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary 
+colnames(raw_rma_2016)=c("Year", "State Code", "State Name", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Abbreviation", "Coverage Type Code", "Coverage Level Percent", "Delivery ID", "Type Code", "Type Name", "Practice Code", "Practice Name", "Unit Structure Code", "Unit Structure Name", "Net Reporting Level Amount", "Reporting Level Type", "Liability Amount", "Total Premium Amount", "Subsidy Amount", "Indemnity Amount", "Loss Ratio", "Endorsed Commodity Reporting Level Amount")
+#subset the dataset to include only information on Iowa and Corn 
+rma_2016_corn=subset(raw_rma_2016, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2015}
+#import full dataset
+raw_rma_2015=read.delim(file="Dr. Wang Project/RMA Data/SOBSCCTPU15.TXT", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary 
+colnames(raw_rma_2015)=c("Year", "State Code", "State Name", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Abbreviation", "Coverage Type Code", "Coverage Level Percent", "Delivery ID", "Type Code", "Type Name", "Practice Code", "Practice Name", "Unit Structure Code", "Unit Structure Name", "Net Reporting Level Amount", "Reporting Level Type", "Liability Amount", "Total Premium Amount", "Subsidy Amount", "Indemnity Amount", "Loss Ratio", "Endorsed Commodity Reporting Level Amount")
+#subset the dataset to include only information on Iowa and Corn 
+rma_2015_corn=subset(raw_rma_2015, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2014}
+#import full dataset
+raw_rma_2014=read.delim(file="Dr. Wang Project/RMA Data/SOBSCCTPU14.TXT", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary 
+colnames(raw_rma_2014)=c("Year", "State Code", "State Name", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Abbreviation", "Coverage Type Code", "Coverage Level Percent", "Delivery ID", "Type Code", "Type Name", "Practice Code", "Practice Name", "Unit Structure Code", "Unit Structure Name", "Net Reporting Level Amount", "Reporting Level Type", "Liability Amount", "Total Premium Amount", "Subsidy Amount", "Indemnity Amount", "Loss Ratio", "Endorsed Commodity Reporting Level Amount")
+#subset the dataset to include only information on Iowa and Corn 
+rma_2014_corn=subset(raw_rma_2014, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2013}
+#import full dataset
+raw_rma_2013=read.delim(file="Dr. Wang Project/RMA Data/SOBSCCTPU13.TXT", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary 
+colnames(raw_rma_2013)=c("Year", "State Code", "State Name", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Abbreviation", "Coverage Type Code", "Coverage Level Percent", "Delivery ID", "Type Code", "Type Name", "Practice Code", "Practice Name", "Unit Structure Code", "Unit Structure Name", "Net Reporting Level Amount", "Reporting Level Type", "Liability Amount", "Total Premium Amount", "Subsidy Amount", "Indemnity Amount", "Loss Ratio", "Endorsed Commodity Reporting Level Amount")
+#subset the dataset to include only information on Iowa and Corn 
+rma_2013_corn=subset(raw_rma_2013, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2012}
+#import full dataset
+raw_rma_2012=read.delim(file="Dr. Wang Project/RMA Data/SOBSCCTPU12.TXT", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary 
+colnames(raw_rma_2012)=c("Year", "State Code", "State Name", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Abbreviation", "Coverage Type Code", "Coverage Level Percent", "Delivery ID", "Type Code", "Type Name", "Practice Code", "Practice Name", "Unit Structure Code", "Unit Structure Name", "Net Reporting Level Amount", "Reporting Level Type", "Liability Amount", "Total Premium Amount", "Subsidy Amount", "Indemnity Amount", "Loss Ratio", "Endorsed Commodity Reporting Level Amount")
+#subset the dataset to include only information on Iowa and Corn 
+rma_2012_corn=subset(raw_rma_2012, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2011}
+#import full dataset
+raw_rma_2011=read.delim(file="Dr. Wang Project/RMA Data/SOBSCCTPU11.TXT", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary 
+colnames(raw_rma_2011)=c("Year", "State Code", "State Name", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Abbreviation", "Coverage Type Code", "Coverage Level Percent", "Delivery ID", "Type Code", "Type Name", "Practice Code", "Practice Name", "Unit Structure Code", "Unit Structure Name", "Net Reporting Level Amount", "Reporting Level Type", "Liability Amount", "Total Premium Amount", "Subsidy Amount", "Indemnity Amount", "Loss Ratio", "Endorsed Commodity Reporting Level Amount")
+#subset the dataset to include only information on Iowa and Corn 
+rma_2011_corn=subset(raw_rma_2011, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2010}
+#import full dataset
+raw_rma_2010=read.delim(file="Dr. Wang Project/RMA Data/SOBSCCTPU10.TXT", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary 
+colnames(raw_rma_2010)=c("Year", "State Code", "State Name", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Abbreviation", "Coverage Type Code", "Coverage Level Percent", "Delivery ID", "Type Code", "Type Name", "Practice Code", "Practice Name", "Unit Structure Code", "Unit Structure Name", "Net Reporting Level Amount", "Reporting Level Type", "Liability Amount", "Total Premium Amount", "Subsidy Amount", "Indemnity Amount", "Loss Ratio", "Endorsed Commodity Reporting Level Amount")
+#subset the dataset to include only information on Iowa and Corn 
+rma_2010_corn=subset(raw_rma_2010, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2009}
+#import full dataset
+raw_rma_2009=read.delim(file="Dr. Wang Project/RMA Data/SOBSCCTPU09.TXT", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary 
+colnames(raw_rma_2009)=c("Year", "State Code", "State Name", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Abbreviation", "Coverage Type Code", "Coverage Level Percent", "Delivery ID", "Type Code", "Type Name", "Practice Code", "Practice Name", "Unit Structure Code", "Unit Structure Name", "Net Reporting Level Amount", "Reporting Level Type", "Liability Amount", "Total Premium Amount", "Subsidy Amount", "Indemnity Amount", "Loss Ratio", "Endorsed Commodity Reporting Level Amount")
+#subset the dataset to include only information on Iowa and Corn 
+rma_2009_corn=subset(raw_rma_2009, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2023-2009}
+rma_total=rbind(rma_2023_corn, rma_2022_corn, rma_2021_corn, rma_2020_corn, rma_2019_corn, rma_2018_corn, rma_2017_corn, rma_2016_corn, rma_2015_corn, rma_2014_corn, rma_2013_corn, rma_2012_corn, rma_2011_corn, rma_2010_corn, rma_2009_corn)
+```
+
+RMA Failed Acres 
+
+```{r RMA 2023}
+#import full dataset 
+raw_rma_fail_2023=read.delim(file= "Dr. Wang Project/RMA Failed/colsom_2023.txt", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary
+colnames(raw_rma_fail_2023)=c("Commodity Year Identifier", "State Code", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Name Abbreviation", "Coverage Category", "Stage Code", "Cause of Loss Code", "Cause of Loss Description", "Month of Loss", "Month of Loss Name", "Year of Loss", "Policies Earning Premium", "Policies Indemnified", "Net Planted Quantity", "Net Endorsed Acres", "Liability", "Total Premium", "Producer Paid Premium", "Subsidy", "State/Private Subsidy", "Additional Subsidy", "EFA Premium Discount", "Net Determined Quanitity", "Indemnity Amount", "Loss Ratio")
+#subset the data to include only information on Iowa and Corn
+rma_fail_2023=subset(raw_rma_fail_2023, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2022}
+#import full dataset 
+raw_rma_fail_2022=read.delim(file= "Dr. Wang Project/RMA Failed/colsom_2022.txt", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary
+colnames(raw_rma_fail_2022)=c("Commodity Year Identifier", "State Code", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Name Abbreviation", "Coverage Category", "Stage Code", "Cause of Loss Code", "Cause of Loss Description", "Month of Loss", "Month of Loss Name", "Year of Loss", "Policies Earning Premium", "Policies Indemnified", "Net Planted Quantity", "Net Endorsed Acres", "Liability", "Total Premium", "Producer Paid Premium", "Subsidy", "State/Private Subsidy", "Additional Subsidy", "EFA Premium Discount", "Net Determined Quanitity", "Indemnity Amount", "Loss Ratio")
+#subset the data to include only information on Iowa and Corn
+rma_fail_2022=subset(raw_rma_fail_2022, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2021}
+#import full dataset 
+raw_rma_fail_2021=read.delim(file= "Dr. Wang Project/RMA Failed/colsom_2021.txt", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary
+colnames(raw_rma_fail_2021)=c("Commodity Year Identifier", "State Code", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Name Abbreviation", "Coverage Category", "Stage Code", "Cause of Loss Code", "Cause of Loss Description", "Month of Loss", "Month of Loss Name", "Year of Loss", "Policies Earning Premium", "Policies Indemnified", "Net Planted Quantity", "Net Endorsed Acres", "Liability", "Total Premium", "Producer Paid Premium", "Subsidy", "State/Private Subsidy", "Additional Subsidy", "EFA Premium Discount", "Net Determined Quanitity", "Indemnity Amount", "Loss Ratio")
+#subset the data to include only information on Iowa and Corn
+rma_fail_2021=subset(raw_rma_fail_2021, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2020}
+#import full dataset 
+raw_rma_fail_2020=read.delim(file= "Dr. Wang Project/RMA Failed/colsom_2020.txt", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary
+colnames(raw_rma_fail_2020)=c("Commodity Year Identifier", "State Code", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Name Abbreviation", "Coverage Category", "Stage Code", "Cause of Loss Code", "Cause of Loss Description", "Month of Loss", "Month of Loss Name", "Year of Loss", "Policies Earning Premium", "Policies Indemnified", "Net Planted Quantity", "Net Endorsed Acres", "Liability", "Total Premium", "Producer Paid Premium", "Subsidy", "State/Private Subsidy", "Additional Subsidy", "EFA Premium Discount", "Net Determined Quanitity", "Indemnity Amount", "Loss Ratio")
+#subset the data to include only information on Iowa and Corn
+rma_fail_2020=subset(raw_rma_fail_2020, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2019}
+#import full dataset 
+raw_rma_fail_2019=read.delim(file= "Dr. Wang Project/RMA Failed/colsom_2019.txt", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary
+colnames(raw_rma_fail_2019)=c("Commodity Year Identifier", "State Code", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Name Abbreviation", "Coverage Category", "Stage Code", "Cause of Loss Code", "Cause of Loss Description", "Month of Loss", "Month of Loss Name", "Year of Loss", "Policies Earning Premium", "Policies Indemnified", "Net Planted Quantity", "Net Endorsed Acres", "Liability", "Total Premium", "Producer Paid Premium", "Subsidy", "State/Private Subsidy", "Additional Subsidy", "EFA Premium Discount", "Net Determined Quanitity", "Indemnity Amount", "Loss Ratio")
+#subset the data to include only information on Iowa and Corn
+rma_fail_2019=subset(raw_rma_fail_2019, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2018}
+#import full dataset 
+raw_rma_fail_2018=read.delim(file= "Dr. Wang Project/RMA Failed/colsom_2018.txt", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary
+colnames(raw_rma_fail_2018)=c("Commodity Year Identifier", "State Code", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Name Abbreviation", "Coverage Category", "Stage Code", "Cause of Loss Code", "Cause of Loss Description", "Month of Loss", "Month of Loss Name", "Year of Loss", "Policies Earning Premium", "Policies Indemnified", "Net Planted Quantity", "Net Endorsed Acres", "Liability", "Total Premium", "Producer Paid Premium", "Subsidy", "State/Private Subsidy", "Additional Subsidy", "EFA Premium Discount", "Net Determined Quanitity", "Indemnity Amount", "Loss Ratio")
+#subset the data to include only information on Iowa and Corn
+rma_fail_2018=subset(raw_rma_fail_2018, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2017}
+#import full dataset 
+raw_rma_fail_2017=read.delim(file= "Dr. Wang Project/RMA Failed/colsom_2017.txt", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary
+colnames(raw_rma_fail_2017)=c("Commodity Year Identifier", "State Code", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Name Abbreviation", "Coverage Category", "Stage Code", "Cause of Loss Code", "Cause of Loss Description", "Month of Loss", "Month of Loss Name", "Year of Loss", "Policies Earning Premium", "Policies Indemnified", "Net Planted Quantity", "Net Endorsed Acres", "Liability", "Total Premium", "Producer Paid Premium", "Subsidy", "State/Private Subsidy", "Additional Subsidy", "EFA Premium Discount", "Net Determined Quanitity", "Indemnity Amount", "Loss Ratio")
+#subset the data to include only information on Iowa and Corn
+rma_fail_2017=subset(raw_rma_fail_2017, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2016}
+#import full dataset 
+raw_rma_fail_2016=read.delim(file= "Dr. Wang Project/RMA Failed/colsom_2016.txt", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary
+colnames(raw_rma_fail_2016)=c("Commodity Year Identifier", "State Code", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Name Abbreviation", "Coverage Category", "Stage Code", "Cause of Loss Code", "Cause of Loss Description", "Month of Loss", "Month of Loss Name", "Year of Loss", "Policies Earning Premium", "Policies Indemnified", "Net Planted Quantity", "Net Endorsed Acres", "Liability", "Total Premium", "Producer Paid Premium", "Subsidy", "State/Private Subsidy", "Additional Subsidy", "EFA Premium Discount", "Net Determined Quanitity", "Indemnity Amount", "Loss Ratio")
+#subset the data to include only information on Iowa and Corn
+rma_fail_2016=subset(raw_rma_fail_2016, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2015}
+#import full dataset 
+raw_rma_fail_2015=read.delim(file= "Dr. Wang Project/RMA Failed/colsom_2015.txt", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary
+colnames(raw_rma_fail_2015)=c("Commodity Year Identifier", "State Code", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Name Abbreviation", "Coverage Category", "Stage Code", "Cause of Loss Code", "Cause of Loss Description", "Month of Loss", "Month of Loss Name", "Year of Loss", "Policies Earning Premium", "Policies Indemnified", "Net Planted Quantity", "Net Endorsed Acres", "Liability", "Total Premium", "Producer Paid Premium", "Subsidy", "State/Private Subsidy", "Additional Subsidy", "EFA Premium Discount", "Net Determined Quanitity", "Indemnity Amount", "Loss Ratio")
+#subset the data to include only information on Iowa and Corn
+rma_fail_2015=subset(raw_rma_fail_2015, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2014}
+#import full dataset 
+raw_rma_fail_2014=read.delim(file= "Dr. Wang Project/RMA Failed/colsom_2014.txt", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary
+colnames(raw_rma_fail_2014)=c("Commodity Year Identifier", "State Code", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Name Abbreviation", "Coverage Category", "Stage Code", "Cause of Loss Code", "Cause of Loss Description", "Month of Loss", "Month of Loss Name", "Year of Loss", "Policies Earning Premium", "Policies Indemnified", "Net Planted Quantity", "Net Endorsed Acres", "Liability", "Total Premium", "Producer Paid Premium", "Subsidy", "State/Private Subsidy", "Additional Subsidy", "EFA Premium Discount", "Net Determined Quanitity", "Indemnity Amount", "Loss Ratio")
+#subset the data to include only information on Iowa and Corn
+rma_fail_2014=subset(raw_rma_fail_2014, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2013}
+#import full dataset 
+raw_rma_fail_2013=read.delim(file= "Dr. Wang Project/RMA Failed/colsom13.txt", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary
+colnames(raw_rma_fail_2013)=c("Commodity Year Identifier", "State Code", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Name Abbreviation", "Coverage Category", "Stage Code", "Cause of Loss Code", "Cause of Loss Description", "Month of Loss", "Month of Loss Name", "Year of Loss", "Policies Earning Premium", "Policies Indemnified", "Net Planted Quantity", "Net Endorsed Acres", "Liability", "Total Premium", "Producer Paid Premium", "Subsidy", "State/Private Subsidy", "Additional Subsidy", "EFA Premium Discount", "Net Determined Quanitity", "Indemnity Amount", "Loss Ratio")
+#subset the data to include only information on Iowa and Corn
+rma_fail_2013=subset(raw_rma_fail_2013, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2012}
+#import full dataset 
+raw_rma_fail_2012=read.delim(file= "Dr. Wang Project/RMA Failed/colsom12.txt", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary
+colnames(raw_rma_fail_2012)=c("Commodity Year Identifier", "State Code", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Name Abbreviation", "Coverage Category", "Stage Code", "Cause of Loss Code", "Cause of Loss Description", "Month of Loss", "Month of Loss Name", "Year of Loss", "Policies Earning Premium", "Policies Indemnified", "Net Planted Quantity", "Net Endorsed Acres", "Liability", "Total Premium", "Producer Paid Premium", "Subsidy", "State/Private Subsidy", "Additional Subsidy", "EFA Premium Discount", "Net Determined Quanitity", "Indemnity Amount", "Loss Ratio")
+#subset the data to include only information on Iowa and Corn
+rma_fail_2012=subset(raw_rma_fail_2012, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2011}
+#import full dataset 
+raw_rma_fail_2011=read.delim(file= "Dr. Wang Project/RMA Failed/colsom11.txt", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary
+colnames(raw_rma_fail_2011)=c("Commodity Year Identifier", "State Code", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Name Abbreviation", "Coverage Category", "Stage Code", "Cause of Loss Code", "Cause of Loss Description", "Month of Loss", "Month of Loss Name", "Year of Loss", "Policies Earning Premium", "Policies Indemnified", "Net Planted Quantity", "Net Endorsed Acres", "Liability", "Total Premium", "Producer Paid Premium", "Subsidy", "State/Private Subsidy", "Additional Subsidy", "EFA Premium Discount", "Net Determined Quanitity", "Indemnity Amount", "Loss Ratio")
+#subset the data to include only information on Iowa and Corn
+rma_fail_2011=subset(raw_rma_fail_2011, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2010}
+#import full dataset 
+raw_rma_fail_2010=read.delim(file= "Dr. Wang Project/RMA Failed/colsom10.txt", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary
+colnames(raw_rma_fail_2010)=c("Commodity Year Identifier", "State Code", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Name Abbreviation", "Coverage Category", "Stage Code", "Cause of Loss Code", "Cause of Loss Description", "Month of Loss", "Month of Loss Name", "Year of Loss", "Policies Earning Premium", "Policies Indemnified", "Net Planted Quantity", "Net Endorsed Acres", "Liability", "Total Premium", "Producer Paid Premium", "Subsidy", "State/Private Subsidy", "Additional Subsidy", "EFA Premium Discount", "Net Determined Quanitity", "Indemnity Amount", "Loss Ratio")
+#subset the data to include only information on Iowa and Corn
+rma_fail_2010=subset(raw_rma_fail_2010, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA 2009}
+#import full dataset 
+raw_rma_fail_2009=read.delim(file= "Dr. Wang Project/RMA Failed/colsom09.txt", header=FALSE, sep="|", dec=".")
+#adding column names based on data dictionary
+colnames(raw_rma_fail_2009)=c("Commodity Year Identifier", "State Code", "State Abbreviation", "County Code", "County Name", "Commodity Code", "Commodity Name", "Insurance Plan Code", "Insurance Plan Name Abbreviation", "Coverage Category", "Stage Code", "Cause of Loss Code", "Cause of Loss Description", "Month of Loss", "Month of Loss Name", "Year of Loss", "Policies Earning Premium", "Policies Indemnified", "Net Planted Quantity", "Net Endorsed Acres", "Liability", "Total Premium", "Producer Paid Premium", "Subsidy", "State/Private Subsidy", "Additional Subsidy", "EFA Premium Discount", "Net Determined Quanitity", "Indemnity Amount", "Loss Ratio")
+#subset the data to include only information on Iowa and Corn
+rma_fail_2009=subset(raw_rma_fail_2009, `State Code`=="19" & `Commodity Code`=="41")
+```
+
+```{r RMA Failed 2009-2023}
+rma_fail_total=rbind(rma_fail_2009, rma_fail_2010, rma_fail_2011, rma_fail_2012, rma_fail_2013, rma_fail_2014, rma_fail_2015, rma_fail_2016, rma_fail_2017, rma_fail_2018, rma_fail_2019, rma_fail_2020, rma_fail_2021, rma_fail_2022, rma_fail_2023)
+```
+
+testing other states to determine if the linear regression model fits 
+
+testing out one year at a time 
+
+ILLINOIS
+```{r IL County}
+#setting up query by using 
+il_county_corn_param=list(commodity_desc="CORN",
+                       agg_level_desc="COUNTY",
+                       state_alpha="IL",
+                       statisticcat_desc ="AREA PLANTED",
+                       domain_desc="TOTAL",
+                       unit_desc="ACRES",
+                       prodn_practice_desc = "ALL PRODUCTION PRACTICES",
+                       year = "2022")
+#applying parameters and retrieving dataset
+il_county_corn_raw=nassqs(il_county_corn_param)
+#only keeping data collected from survey and removing data that does not specify county name 
+il_county_survey=filter(il_county_corn_raw, source_desc=="SURVEY" & county_name !="OTHER (COMBINED) COUNTIES")
+#check that the value column is numeric and not character 
+class(il_county_survey$Value)
+#check that the year column is numeric and not character 
+class(il_county_survey$year)
+#change year to numeric data 
+il_county_mutate=mutate(il_county_survey, year_new=as.numeric(year))
+#checking new column is numeric
+class(il_county_mutate$year_new)
+#keep only the relevant parameters 
+il_county_min=select(il_county_mutate, county_code, source_desc, short_desc, unit_desc, commodity_desc, agg_level_desc, state_name, asd_desc, county_name, location_desc, year_new, freq_desc, reference_period_desc, Value, `CV (%)`)
+```
+
+```{r FSA 2022}
+#full dataset
+raw_fsa_2022 <-read_excel("Dr. Wang Project/FSA Data/2022_fsa_acres_web_010323 2.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+il_fsa_2022=subset(raw_fsa_2022, `State Code`=="17" & Crop=="CORN", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+```
+
+```{r}
+#take average of every county avg
+il_avg_county<-il_fsa_2022%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Planted Acres`), list(il_fsa_planted=sum)) 
+#drop other counties from county data 
+il_county_clean=subset(il_county_min, `county_code` < 998)
+
+#county and fsa regression datasets
+table(il_county_clean$county_code)
+table(il_avg_county$`County Code`)
+#merge the datasets 
+il_lr_fsa=full_join(il_avg_county, il_county_clean, by=c("County Code"="county_code"))
+
+#linear model
+il_lm_fsa_2022=lm(Value~il_fsa_planted, il_lr_fsa)
+anova(il_lm_fsa_2022)
+summary(il_lm_fsa_2022)
+ggplot(data=il_lr_fsa, aes(il_fsa_planted, Value))+geom_point()
+```
+
+NEBRASKA
+```{r NE County}
+#setting up query by using 
+ne_county_corn_param=list(commodity_desc="CORN",
+                       agg_level_desc="COUNTY",
+                       state_alpha="NE",
+                       statisticcat_desc ="AREA PLANTED",
+                       domain_desc="TOTAL",
+                       unit_desc="ACRES",
+                       prodn_practice_desc = "ALL PRODUCTION PRACTICES",
+                       year = "2022")
+#applying parameters and retrieving dataset
+ne_county_corn_raw=nassqs(ne_county_corn_param)
+#only keeping data collected from survey and removing data that does not specify county name 
+ne_county_survey=filter(ne_county_corn_raw, source_desc=="SURVEY" & county_name !="OTHER (COMBINED) COUNTIES")
+#check that the value column is numeric and not character 
+class(ne_county_survey$Value)
+#check that the year column is numeric and not character 
+class(ne_county_survey$year)
+#change year to numeric data 
+ne_county_mutate=mutate(ne_county_survey, year_new=as.numeric(year))
+#checking new column is numeric
+class(ne_county_mutate$year_new)
+#keep only the relevant parameters 
+ne_county_min=select(ne_county_mutate, county_code, source_desc, short_desc, unit_desc, commodity_desc, agg_level_desc, state_name, asd_desc, county_name, location_desc, year_new, freq_desc, reference_period_desc, Value, `CV (%)`)
+```
+
+```{r FSA 2022}
+#full dataset
+raw_fsa_2022 <-read_excel("Dr. Wang Project/FSA Data/2022_fsa_acres_web_010323 2.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+ne_fsa_2022=subset(raw_fsa_2022, `State Code`=="31" & Crop=="CORN", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+```
+
+```{r}
+#take average of every county avg
+ne_avg_county<-ne_fsa_2022%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Planted Acres`), list(ne_fsa_planted=sum)) 
+#drop other counties from county data 
+ne_county_clean=subset(ne_county_min, `county_code` < 998)
+
+unique(ne_fsa_2022$`County Code`)
+unique(ne_fsa_2022$County)
+
+unique(ne_county_clean$county_code)
+unique(ne_county_clean$county_name)
+
+#county and fsa regression datasets
+table(ne_county_clean$county_code)
+table(ne_avg_county$`County Code`)
+#merge the datasets 
+ne_lr_fsa=full_join(ne_avg_county, ne_county_clean, by=c("County Code"="county_code"))
+
+#linear model
+ne_lm_fsa_2022=lm(Value~ne_fsa_planted, ne_lr_fsa)
+anova(ne_lm_fsa_2022)
+summary(ne_lm_fsa_2022)
+ggplot(data=ne_lr_fsa, aes(ne_fsa_planted, Value))+geom_point()
+```
+
+MINNESOTA
+```{r MN County}
+#setting up query by using 
+ne_county_corn_param=list(commodity_desc="CORN",
+                       agg_level_desc="COUNTY",
+                       state_alpha="MN",
+                       statisticcat_desc ="AREA PLANTED",
+                       domain_desc="TOTAL",
+                       unit_desc="ACRES",
+                       prodn_practice_desc = "ALL PRODUCTION PRACTICES",
+                       year = "2022")
+#applying parameters and retrieving dataset
+mn_county_corn_raw=nassqs(ne_county_corn_param)
+#only keeping data collected from survey and removing data that does not specify county name 
+mn_county_survey=filter(mn_county_corn_raw, source_desc=="SURVEY" & county_name !="OTHER (COMBINED) COUNTIES")
+#check that the value column is numeric and not character 
+class(mn_county_survey$Value)
+#check that the year column is numeric and not character 
+class(mn_county_survey$year)
+#change year to numeric data 
+mn_county_mutate=mutate(mn_county_survey, year_new=as.numeric(year))
+#checking new column is numeric
+class(mn_county_mutate$year_new)
+#keep only the relevant parameters 
+mn_county_min=select(mn_county_mutate, county_code, source_desc, short_desc, unit_desc, commodity_desc, agg_level_desc, state_name, asd_desc, county_name, location_desc, year_new, freq_desc, reference_period_desc, Value, `CV (%)`)
+```
+
+```{r FSA 2022}
+#full dataset
+raw_fsa_2022 <-read_excel("Dr. Wang Project/FSA Data/2022_fsa_acres_web_010323 2.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+mn_fsa_2022=subset(raw_fsa_2022, `State Code`=="27" & Crop=="CORN", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+```
+
+```{r}
+#take average of every county avg
+mn_avg_county<-mn_fsa_2022%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Planted Acres`), list(mn_fsa_planted=sum)) 
+#drop other counties from county data 
+mn_county_clean=subset(mn_county_min, `county_code` < 998)
+
+unique(mn_fsa_2022$`County Code`)
+unique(mn_fsa_2022$County)
+
+unique(mn_county_clean$county_code)
+unique(mn_county_clean$county_name)
+
+#county and fsa regression datasets
+table(mn_county_clean$county_code)
+table(mn_avg_county$`County Code`)
+#merge the datasets 
+mn_lr_fsa=full_join(mn_avg_county, mn_county_clean, by=c("County Code"="county_code"))
+
+#linear model
+mn_lm_fsa_2022=lm(Value~mn_fsa_planted, mn_lr_fsa)
+anova(mn_lm_fsa_2022)
+summary(mn_lm_fsa_2022)
+ggplot(data=mn_lr_fsa, aes(mn_fsa_planted, Value))+geom_point()
+```
+
+PENNSLYVANIA
+```{r PA County}
+#setting up query by using 
+pa_county_corn_param=list(commodity_desc="CORN",
+                       agg_level_desc="COUNTY",
+                       state_alpha="PA",
+                       statisticcat_desc ="AREA PLANTED",
+                       domain_desc="TOTAL",
+                       unit_desc="ACRES",
+                       prodn_practice_desc = "ALL PRODUCTION PRACTICES",
+                       year = "2022")
+#applying parameters and retrieving dataset
+pa_county_corn_raw=nassqs(pa_county_corn_param)
+#only keeping data collected from survey and removing data that does not specify county name 
+pa_county_survey=filter(pa_county_corn_raw, source_desc=="SURVEY" & county_name !="OTHER (COMBINED) COUNTIES")
+#check that the value column is numeric and not character 
+class(pa_county_survey$Value)
+#check that the year column is numeric and not character 
+class(pa_county_survey$year)
+#change year to numeric data 
+pa_county_mutate=mutate(pa_county_survey, year_new=as.numeric(year))
+#checking new column is numeric
+class(pa_county_mutate$year_new)
+#keep only the relevant parameters 
+pa_county_min=select(pa_county_mutate, county_code, source_desc, short_desc, unit_desc, commodity_desc, agg_level_desc, state_name, asd_desc, county_name, location_desc, year_new, freq_desc, reference_period_desc, Value, `CV (%)`)
+```
+
+```{r FSA 2022}
+#full dataset
+raw_fsa_2022 <-read_excel("Dr. Wang Project/FSA Data/2022_fsa_acres_web_010323 2.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+pa_fsa_2022=subset(raw_fsa_2022, `State Code`=="42" & Crop=="CORN", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+```
+
+```{r}
+#take average of every county avg
+pa_avg_county<-pa_fsa_2022%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Planted Acres`), list(fsa_planted=sum)) 
+#drop other counties from county data 
+pa_county_clean=subset(pa_county_min, `county_code` < 998)
+
+unique(pa_fsa_2022$`County Code`)
+unique(pa_fsa_2022$County)
+
+unique(pa_county_clean$county_code)
+unique(pa_county_clean$county_name)
+
+
+#merge the datasets 
+pa_lr_fsa=full_join(pa_avg_county, pa_county_clean, by=c("County Code"="county_code"))
+
+#linear model
+pa_lm_fsa_2022=lm(Value~fsa_planted, pa_lr_fsa)
+anova(pa_lm_fsa_2022)
+summary(pa_lm_fsa_2022)
+ggplot(data=pa_lr_fsa, aes(fsa_planted, Value))+geom_point()
+```
+
+Saving all corn datasets 
+```{r}
+#Iowa - 2008 to 20223
+write.csv(lr_fsa, file="Iowa_Corn_2008_2023")
+
+#Illinois 2022
+write.csv(il_lr_fsa, file="IL_Corn_2022")
+
+#Nebraska 2022
+write.csv(ne_lr_fsa, file="NE_Corn_2022")
+
+#Minnesota 2022
+write.csv(mn_lr_fsa, file="MN_Corn_2022")
+
+#Pennslyvania 2022
+write.csv(pa_lr_fsa, file="PA_Corn_2022")
+```
+Corn seems too well documented to achieve our goals so moving onto another crop 
+
+SOYBEAN 
+
+IOWA
+```{r County Dataset}
+#setting up query by using 
+ia_soy_param=list(commodity_desc="SOYBEANS",
+                       agg_level_desc="COUNTY",
+                       state_alpha="IA",
+                       statisticcat_desc ="AREA PLANTED",
+                       domain_desc="TOTAL",
+                       unit_desc="ACRES",
+                       prodn_practice_desc = "ALL PRODUCTION PRACTICES", 
+                       year = "2015")
+#applying parameters and retrieving dataset
+ia_soy_raw=nassqs(ia_soy_param)
+#only keeping data collected from survey and removing data that does not specify county name 
+ia_soy_survey=filter(ia_soy_raw, source_desc=="SURVEY" & county_name !="OTHER (COMBINED) COUNTIES")
+#check that the value column is numeric and not character 
+class(ia_soy_survey$Value)
+#check that the year column is numeric and not character 
+class(ia_soy_survey$year)
+#change year to numeric data 
+ia_soy_mutate=mutate(ia_soy_survey, year_new=as.numeric(year))
+#checking new column is numeric
+class(ia_soy_mutate$year_new)
+#keep only the relevant parameters 
+ia_soy_min=select(ia_soy_mutate, county_code, source_desc, short_desc, unit_desc, commodity_desc, agg_level_desc, state_name, asd_desc, county_name, location_desc, year_new, freq_desc, reference_period_desc, Value, `CV (%)`)
+```
+
+```{r FSA 2015}
+#full dataset
+raw_fsa_2015 <-read_excel("Dr. Wang Project/FSA Data/2015_fsa_acres_01052016.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+ia_soy_fsa_2015=subset(raw_fsa_2015, `State Code`=="19" & Crop=="SOYBEANS", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+```
+
+```{r}
+#take average of every county avg
+ia_soy_avg_county<-ia_soy_fsa_2015%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Planted Acres`), list(fsa_planted=sum)) 
+#drop other counties from county data 
+ia_soy_clean=subset(ia_soy_min, `county_code` < 998)
+
+unique(ia_soy_fsa_2015$`County Code`)
+unique(ia_soy_fsa_2015$County)
+
+unique(ia_soy_clean$county_code)
+unique(ia_soy_clean$county_name)
+
+#merge the datasets 
+ia_soy_lr=full_join(ia_soy_avg_county, ia_soy_clean, by=c("County Code"="county_code"))
+
+#linear model
+ia_soy_lm=lm(Value~fsa_planted, ia_soy_lr)
+anova(ia_soy_lm)
+summary(ia_soy_lm)
+ggplot(data=ia_soy_lr, aes(fsa_planted, Value))+geom_point()
+```
+
+ILLOINIS
+```{r County Dataset}
+#setting up query by using 
+il_soy_param=list(commodity_desc="SOYBEANS",
+                       agg_level_desc="COUNTY",
+                       state_alpha="IL",
+                       statisticcat_desc ="AREA PLANTED",
+                       domain_desc="TOTAL",
+                       unit_desc="ACRES",
+                       prodn_practice_desc = "ALL PRODUCTION PRACTICES", 
+                       year = "2015")
+#applying parameters and retrieving dataset
+il_soy_raw=nassqs(il_soy_param)
+#only keeping data collected from survey and removing data that does not specify county name 
+il_soy_survey=filter(il_soy_raw, source_desc=="SURVEY" & county_name !="OTHER (COMBINED) COUNTIES")
+#check that the value column is numeric and not character 
+class(il_soy_survey$Value)
+#check that the year column is numeric and not character 
+class(il_soy_survey$year)
+#change year to numeric data 
+il_soy_mutate=mutate(il_soy_survey, year_new=as.numeric(year))
+#checking new column is numeric
+class(il_soy_mutate$year_new)
+#keep only the relevant parameters 
+il_soy_min=select(il_soy_mutate, county_code, source_desc, short_desc, unit_desc, commodity_desc, agg_level_desc, state_name, asd_desc, county_name, location_desc, year_new, freq_desc, reference_period_desc, Value, `CV (%)`)
+```
+
+```{r FSA 2015}
+#full dataset
+raw_fsa_2015 <-read_excel("Dr. Wang Project/FSA Data/2015_fsa_acres_01052016.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+il_soy_fsa_2015=subset(raw_fsa_2015, `State Code`=="17" & Crop=="SOYBEANS", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+```
+
+```{r}
+#take average of every county avg
+il_soy_avg_county<-il_soy_fsa_2015%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Planted Acres`), list(fsa_planted=sum)) 
+#drop other counties from county data 
+il_soy_clean=subset(il_soy_min, `county_code` < 998)
+
+unique(il_soy_fsa_2015$`County Code`)
+unique(il_soy_fsa_2015$County)
+
+unique(il_soy_clean$county_code)
+unique(il_soy_clean$county_name)
+
+#merge the datasets 
+il_soy_lr=full_join(il_soy_avg_county, il_soy_clean, by=c("County Code"="county_code"))
+
+#linear model
+il_soy_lm=lm(Value~fsa_planted, il_soy_lr)
+anova(il_soy_lm)
+summary(il_soy_lm)
+ggplot(data=il_soy_lr, aes(fsa_planted, Value))+geom_point()
+```
+
+MINNESOTA
+```{r County Dataset}
+#setting up query by using 
+mn_soy_param=list(commodity_desc="SOYBEANS",
+                       agg_level_desc="COUNTY",
+                       state_alpha="MN",
+                       statisticcat_desc ="AREA PLANTED",
+                       domain_desc="TOTAL",
+                       unit_desc="ACRES",
+                       prodn_practice_desc = "ALL PRODUCTION PRACTICES", 
+                       year = "2015")
+#applying parameters and retrieving dataset
+mn_soy_raw=nassqs(mn_soy_param)
+#only keeping data collected from survey and removing data that does not specify county name 
+mn_soy_survey=filter(mn_soy_raw, source_desc=="SURVEY" & county_name !="OTHER (COMBINED) COUNTIES")
+#check that the value column is numeric and not character 
+class(mn_soy_survey$Value)
+#check that the year column is numeric and not character 
+class(mn_soy_survey$year)
+#change year to numeric data 
+mn_soy_mutate=mutate(mn_soy_survey, year_new=as.numeric(year))
+#checking new column is numeric
+class(mn_soy_mutate$year_new)
+#keep only the relevant parameters 
+mn_soy_min=select(mn_soy_mutate, county_code, source_desc, short_desc, unit_desc, commodity_desc, agg_level_desc, state_name, asd_desc, county_name, location_desc, year_new, freq_desc, reference_period_desc, Value, `CV (%)`)
+```
+
+```{r FSA 2015}
+#full dataset
+raw_fsa_2015 <-read_excel("Dr. Wang Project/FSA Data/2015_fsa_acres_01052016.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+mn_soy_fsa_2015=subset(raw_fsa_2015, `State Code`=="27" & Crop=="SOYBEANS", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+```
+
+```{r}
+#take average of every county avg
+mn_soy_avg_county<-mn_soy_fsa_2015%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Planted Acres`), list(fsa_planted=sum)) 
+#drop other counties from county data 
+mn_soy_clean=subset(mn_soy_min, `county_code` < 998)
+
+unique(mn_fsa_2015$`County Code`)
+unique(mn_fsa_2015$County)
+
+unique(mn_soy_clean$county_code)
+unique(mn_soy_clean$county_name)
+
+#merge the datasets 
+mn_soy_lr=full_join(mn_soy_avg_county, mn_soy_clean, by=c("County Code"="county_code"))
+
+#linear model
+mn_soy_lm=lm(Value~fsa_planted, mn_soy_lr)
+anova(mn_soy_lm)
+summary(mn_soy_lm)
+ggplot(data=mn_soy_lr, aes(fsa_planted, Value))+geom_point()
+```
+
+
+COTTON
+
+TEXAS
+```{r County Dataset}
+#setting up query by using 
+tx_cot_param=list(commodity_desc="COTTON",
+                       agg_level_desc="COUNTY",
+                       state_alpha="TX",
+                       statisticcat_desc ="AREA PLANTED",
+                       domain_desc="TOTAL",
+                       unit_desc="ACRES",
+                       prodn_practice_desc = "ALL PRODUCTION PRACTICES", 
+                       year = "2015")
+#applying parameters and retrieving dataset
+tx_cot_raw=nassqs(tx_cot_param)
+#only keeping data collected from survey and removing data that does not specify county name 
+tx_cot_survey=filter(tx_cot_raw, source_desc=="SURVEY" & county_name !="OTHER (COMBINED) COUNTIES")
+#check that the value column is numeric and not character 
+class(tx_cot_survey$Value)
+#check that the year column is numeric and not character 
+class(tx_cot_survey$year)
+#change year to numeric data 
+tx_cot_mutate=mutate(tx_cot_survey, year_new=as.numeric(year))
+#checking new column is numeric
+class(tx_cot_mutate$year_new)
+#keep only the relevant parameters 
+tx_cot_min=select(tx_cot_mutate, county_code, source_desc, short_desc, unit_desc, commodity_desc, agg_level_desc, state_name, asd_desc, county_name, location_desc, year_new, freq_desc, reference_period_desc, Value, `CV (%)`)
+```
+
+```{r FSA 2015}
+#full dataset
+raw_fsa_2015 <-read_excel("Dr. Wang Project/FSA Data/2015_fsa_acres_01052016.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+tx_cot_fsa_2015=subset(raw_fsa_2015, `State Code`=="48" & Crop=="COTTON- Upland", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+```
+
+```{r}
+#take average of every county avg
+tx_cot_avg_county<-tx_cot_fsa_2015%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Planted Acres`), list(fsa_planted=sum)) 
+#drop other counties from county data 
+tx_cot_clean=subset(tx_cot_min, `county_code` < 998)
+
+unique(tx_cot_fsa_2015$`County Code`)
+unique(tx_cot_fsa_2015$County)
+
+unique(tx_cot_clean$county_code)
+unique(tx_cot_clean$county_name)
+
+#merge the datasets 
+tx_cot_lr=full_join(tx_cot_avg_county, tx_cot_clean, by=c("County Code"="county_code"))
+
+#linear model
+tx_cot_lm=lm(Value~fsa_planted, tx_cot_lr)
+anova(tx_cot_lm)
+summary(tx_cot_lm)
+ggplot(data=tx_cot_lr, aes(fsa_planted, Value))+geom_point()
+```
+
+
+GEORGIA 
+
+```{r County Dataset}
+#setting up query by using 
+ga_cot_param=list(commodity_desc="COTTON",
+                       agg_level_desc="COUNTY",
+                       state_alpha="GA",
+                       statisticcat_desc ="AREA PLANTED",
+                       domain_desc="TOTAL",
+                       unit_desc="ACRES",
+                       prodn_practice_desc = "ALL PRODUCTION PRACTICES", 
+                       year = "2015")
+#applying parameters and retrieving dataset
+ga_cot_raw=nassqs(ga_cot_param)
+#only keeping data collected from survey and removing data that does not specify county name 
+ga_cot_survey=filter(ga_cot_raw, source_desc=="SURVEY" & county_name !="OTHER (COMBINED) COUNTIES")
+#check that the value column is numeric and not character 
+class(ga_cot_survey$Value)
+#check that the year column is numeric and not character 
+class(ga_cot_survey$year)
+#change year to numeric data 
+ga_cot_mutate=mutate(ga_cot_survey, year_new=as.numeric(year))
+#checking new column is numeric
+class(ga_cot_mutate$year_new)
+#keep only the relevant parameters 
+ga_cot_min=select(ga_cot_mutate, county_code, source_desc, short_desc, unit_desc, commodity_desc, agg_level_desc, state_name, asd_desc, county_name, location_desc, year_new, freq_desc, reference_period_desc, Value, `CV (%)`)
+```
+
+```{r FSA 2015}
+#full dataset
+raw_fsa_2015 <-read_excel("Dr. Wang Project/FSA Data/2015_fsa_acres_01052016.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+ga_cot_fsa_2015=subset(raw_fsa_2015, `State Code`=="13" & Crop=="COTTON- Upland", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+```
+
+```{r}
+#take average of every county avg
+ga_cot_avg_county<-ga_cot_fsa_2015%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Planted Acres`), list(fsa_planted=sum)) 
+#drop other counties from county data 
+ga_cot_clean=subset(ga_cot_min, `county_code` < 998)
+
+unique(ga_cot_fsa_2015$`County Code`)
+unique(ga_cot_fsa_2015$County)
+
+unique(ga_cot_clean$county_code)
+unique(ga_cot_clean$county_name)
+
+#merge the datasets 
+ga_cot_lr=full_join(ga_cot_avg_county, ga_cot_clean, by=c("County Code"="county_code"))
+
+#linear model
+ga_cot_lm=lm(Value~fsa_planted, ga_cot_lr)
+anova(ga_cot_lm)
+summary(ga_cot_lm)
+ggplot(data=ga_cot_lr, aes(fsa_planted, Value))+geom_point()
+```
+
+
+Arkansas
+```{r County Dataset}
+#setting up query by using 
+ar_cot_param=list(commodity_desc="COTTON",
+                       agg_level_desc="COUNTY",
+                       state_alpha="AR",
+                       statisticcat_desc ="AREA PLANTED",
+                       domain_desc="TOTAL",
+                       unit_desc="ACRES",
+                       prodn_practice_desc = "ALL PRODUCTION PRACTICES", 
+                       year = "2015")
+#applying parameters and retrieving dataset
+ar_cot_raw=nassqs(ca_cot_param)
+#only keeping data collected from survey and removing data that does not specify county name 
+ar_cot_survey=filter(ar_cot_raw, source_desc=="SURVEY" & county_name !="OTHER (COMBINED) COUNTIES")
+#check that the value column is numeric and not character 
+class(ar_cot_survey$Value)
+#check that the year column is numeric and not character 
+class(ar_cot_survey$year)
+#change year to numeric data 
+ar_cot_mutate=mutate(ar_cot_survey, year_new=as.numeric(year))
+#checking new column is numeric
+class(ar_cot_mutate$year_new)
+#keep only the relevant parameters 
+ar_cot_min=select(ar_cot_mutate, county_code, source_desc, short_desc, unit_desc, commodity_desc, agg_level_desc, state_name, asd_desc, county_name, location_desc, year_new, freq_desc, reference_period_desc, Value, `CV (%)`)
+```
+
+```{r FSA 2015}
+#full dataset
+raw_fsa_2015 <-read_excel("Dr. Wang Project/FSA Data/2015_fsa_acres_01052016.xlsx", 
+    sheet = "county_data")
+#filter to only include corn in Iowa
+ar_cot_fsa_2015=subset(raw_fsa_2015, `State Code`=="05" & Crop=="COTTON- Upland", select=c(`State Code`, `County`, `Crop`, `Planted Acres`, `Failed Acres`, `County Code`))
+```
+
+```{r}
+#take average of every county avg
+ar_cot_avg_county<-ar_cot_fsa_2015%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Planted Acres`), list(fsa_planted=sum)) 
+#drop other counties from county data 
+ar_cot_clean=subset(ar_cot_min, `county_code` < 998)
+
+unique(ar_cot_fsa_2015$`County Code`)
+unique(ar_cot_fsa_2015$County)
+
+unique(ar_cot_clean$county_code)
+unique(ar_cot_clean$county_name)
+
+#merge the datasets 
+ar_cot_lr=full_join(ar_cot_avg_county, ar_cot_clean, by=c("County Code"="county_code"))
+
+#linear model
+ar_cot_lm=lm(Value~fsa_planted, ar_cot_lr)
+anova(ar_cot_lm)
+summary(ar_cot_lm)
+ggplot(data=ar_cot_lr, aes(fsa_planted, Value))+geom_point()
+```
+
+binding RMA dataset to county dataset
+
+```{r}
+#checking that the columns are numeric
+class(rma_total$`Net Reporting Level Amount`)
+#take sum of every county avg per year 
+rma_sum_county<-rma_total%>% 
+  group_by(`County Code`, `Year`) %>%
+  summarise_at(vars(`Net Reporting Level Amount`), list(rma_planted=sum))
+#checking sizes and sums
+table(county_clean_final$year_new)
+table(county_clean_final$county_code)
+table(rma_sum_county$Year)
+table(rma_sum_county$`County Code`)
+#RMA splits pott into west and east so i need to take the sum
+#take out east and west pottawatamie counties to get sum
+rma_epott=subset(rma_sum_county, `County Code` ==155) 
+rma_wpott=subset(rma_sum_county, `County Code` ==156)
+rma_pott=rbind(rma_epott, rma_wpott)
+#sum pott by year 
+rma_avg_pott<-rma_pott%>% 
+  group_by(`Year`) %>%
+  summarise_at(vars(`rma_planted`), list(rma_planted=sum))
+#add county code 
+rma_avg_pott$`County Code`=rep(155, 15)
+#drop original fsa east and west pottawattamie counties
+rma_sum_county=subset(rma_sum_county, !`County Code`== 155)
+rma_sum_county=subset(rma_sum_county, !`County Code` == 156)
+#add in new sum pottawatamie county 
+rma_clean=rbind(rma_sum_county, rma_avg_pott)
+#checking to see if the substitution of pott county worked
+table(rma_clean$`County Code`)
+#convert County Code to character to match the rest of the dataset 
+rma_clean$`County Code`= as.character(rma_clean$`County Code`)
+class(rma_clean$`County Code`)
+#merge the datasets 
+lr_rma=full_join(rma_clean, county_clean, by=c("County Code"="county_code", "Year"="year_new"))
+```
+
+linear regression model between NASS and RMA
+```{r}
+#subset of one year - 2016
+rma_2016=subset(lr_rma, Year==2016)
+#linear model
+lm_rma_2016=lm(Value~rma_planted, rma_2016)
+anova(lm_rma_2016)
+summary(lm_rma_2016)
+ggplot(data=rma_2016, aes(rma_planted, Value))+geom_point()
+
+#subset of one year - 2017
+rma_2017=subset(lr_rma, Year==2017)
+#linear model
+lm_rma_2017=lm(Value~rma_planted, rma_2017)
+anova(lm_rma_2017)
+summary(lm_rma_2017)
+ggplot(data=rma_2017, aes(rma_planted, Value))+geom_point()
+```
+
+** I am not combining the pott county just for ease of finding a good relationship
+
+ILLoinis - Corn
+```{r}
+#subset the dataset to include only information on Illoinis and Corn 
+il_rma_corn_2022=subset(raw_rma_2016, `State Code`=="17" & `Commodity Code`=="41")
+#take sum of every county 
+il_cor_rma_sum<-il_rma_corn_2016%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Net Reporting Level Amount`), list(rma_planted=sum)) 
+#converting county code to character data to match the rest of the dataset 
+il_cor_rma_sum$`County Code`= as.character(il_cor_rma_sum$`County Code`)
+#merge the datasets using the previously made 2016 survey dataset
+il_corn_rma_lr=full_join(il_cor_rma_sum, il_county_clean, by=c("County Code"="county_code"))
+
+#linear model
+il_corn_rma_lm=lm(Value~rma_planted, il_corn_rma_lr)
+anova(il_corn_rma_lm)
+summary(il_corn_rma_lm)
+ggplot(data=il_corn_rma_lr, aes(rma_planted, Value))+geom_point()
+```
+
+Nebraska- Corn
+```{r}
+#subset the dataset to include only information on Illoinis and Corn 
+ne_rma_corn_2016=subset(raw_rma_2016, `State Code`=="31" & `Commodity Code`=="41")
+#take sum of every county 
+ne_cor_rma_sum<-ne_rma_corn_2016%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Net Reporting Level Amount`), list(rma_planted=sum)) 
+#converting county code to character data to match the rest of the dataset 
+ne_cor_rma_sum$`County Code`= as.character(ne_cor_rma_sum$`County Code`)
+#merge the datasets using the previously made 2016 survey dataset
+ne_corn_rma_lr=full_join(ne_cor_rma_sum, ne_county_clean, by=c("County Code"="county_code"))
+
+#linear model
+ne_corn_rma_lm=lm(Value~rma_planted, ne_corn_rma_lr)
+anova(ne_corn_rma_lm)
+summary(ne_corn_rma_lm)
+ggplot(data=ne_corn_rma_lr, aes(rma_planted, Value))+geom_point()
+```
+
+Minnesota - Corn
+```{r}
+#subset the dataset to include only information on Illoinis and Corn 
+mn_rma_corn_2016=subset(raw_rma_2016, `State Code`=="27" & `Commodity Code`=="41")
+#take sum of every county 
+mn_cor_rma_sum<-mn_rma_corn_2016%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Net Reporting Level Amount`), list(rma_planted=sum)) 
+#converting county code to character data to match the rest of the dataset 
+mn_cor_rma_sum$`County Code`= as.character(mn_cor_rma_sum$`County Code`)
+#merge the datasets using the previously made 2016 survey dataset
+mn_corn_rma_lr=full_join(mn_cor_rma_sum, mn_county_clean, by=c("County Code"="county_code"))
+
+#linear model
+mn_corn_rma_lm=lm(Value~rma_planted, mn_corn_rma_lr)
+anova(mn_corn_rma_lm)
+summary(mn_corn_rma_lm)
+ggplot(data=mn_corn_rma_lr, aes(rma_planted, Value))+geom_point()
+```
+
+Pennslyvania - Corn
+```{r}
+#subset the dataset to include only information on Illoinis and Corn 
+pa_rma_corn_2016=subset(raw_rma_2016, `State Code`=="42" & `Commodity Code`=="41")
+#take sum of every county 
+pa_cor_rma_sum<-pa_rma_corn_2016%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Net Reporting Level Amount`), list(rma_planted=sum)) 
+#converting county code to character data to match the rest of the dataset 
+pa_cor_rma_sum$`County Code`= as.character(pa_cor_rma_sum$`County Code`)
+#merge the datasets using the previously made 2016 survey dataset
+pa_corn_rma_lr=full_join(pa_cor_rma_sum, pa_county_clean, by=c("County Code"="county_code"))
+
+#linear model
+pa_corn_rma_lm=lm(Value~rma_planted, pa_corn_rma_lr)
+anova(pa_corn_rma_lm)
+summary(pa_corn_rma_lm)
+ggplot(data=pa_corn_rma_lr, aes(rma_planted, Value))+geom_point()
+```
+
+Iowa - Soybean
+```{r}
+#subset the dataset to include only information on Illoinis and Corn 
+ia_rma_soy_2016=subset(raw_rma_2016, `State Code`=="19" & `Commodity Code`=="81")
+#take sum of every county 
+ia_soy_rma_sum<-ia_rma_soy_2016%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Net Reporting Level Amount`), list(rma_planted=sum)) 
+#converting county code to character data to match the rest of the dataset 
+ia_soy_rma_sum$`County Code`= as.character(ia_soy_rma_sum$`County Code`)
+#merge the datasets using the previously made 2016 survey dataset
+ia_soy_rma_lr=full_join(ia_soy_rma_sum, ia_soy_clean, by=c("County Code"="county_code"))
+
+#linear model
+ia_soy_rma_lm=lm(Value~rma_planted, ia_soy_rma_lr)
+anova(ia_soy_rma_lm)
+summary(ia_soy_rma_lm)
+ggplot(data=ia_soy_rma_lr, aes(rma_planted, Value))+geom_point()
+```
+
+Illoinis - Soybean
+```{r}
+#subset the dataset to include only information on Illoinis and Corn 
+il_rma_soy_2016=subset(raw_rma_2016, `State Code`=="17" & `Commodity Code`=="81")
+#take sum of every county 
+il_soy_rma_sum<-il_rma_soy_2016%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Net Reporting Level Amount`), list(rma_planted=sum)) 
+#converting county code to character data to match the rest of the dataset 
+il_soy_rma_sum$`County Code`= as.character(il_soy_rma_sum$`County Code`)
+#merge the datasets using the previously made 2016 survey dataset
+il_soy_rma_lr=full_join(il_soy_rma_sum, il_soy_clean, by=c("County Code"="county_code"))
+
+#linear model
+il_soy_rma_lm=lm(Value~rma_planted, il_soy_rma_lr)
+anova(il_soy_rma_lm)
+summary(il_soy_rma_lm)
+ggplot(data=il_soy_rma_lr, aes(rma_planted, Value))+geom_point()
+```
+
+Minnesota - Soybean
+```{r}
+#subset the dataset to include only information on Illoinis and Corn 
+mn_rma_soy_2016=subset(raw_rma_2016, `State Code`=="27" & `Commodity Code`=="81")
+#take sum of every county 
+mn_soy_rma_sum<-mn_rma_soy_2016%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Net Reporting Level Amount`), list(rma_planted=sum)) 
+#converting county code to character data to match the rest of the dataset 
+mn_soy_rma_sum$`County Code`= as.character(mn_soy_rma_sum$`County Code`)
+#merge the datasets using the previously made 2016 survey dataset
+mn_soy_rma_lr=full_join(mn_soy_rma_sum, mn_soy_clean, by=c("County Code"="county_code"))
+
+#linear model
+mn_soy_rma_lm=lm(Value~rma_planted, mn_soy_rma_lr)
+anova(mn_soy_rma_lm)
+summary(mn_soy_rma_lm)
+ggplot(data=mn_soy_rma_lr, aes(rma_planted, Value))+geom_point()
+```
+
+Texas - Cotton
+```{r}
+#subset the dataset to include only information on Illoinis and Corn 
+tx_rma_cot_2016=subset(raw_rma_2016, `State Code`=="48" & `Commodity Code`=="21")
+#take sum of every county 
+tx_cot_rma_sum<-tx_rma_cot_2016%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Net Reporting Level Amount`), list(rma_planted=sum)) 
+#converting county code to character data to match the rest of the dataset 
+tx_cot_rma_sum$`County Code`= as.character(tx_cot_rma_sum$`County Code`)
+#merge the datasets using the previously made 2016 survey dataset
+tx_cot_rma_lr=full_join(tx_cot_rma_sum, tx_cot_clean, by=c("County Code"="county_code"))
+
+#linear model
+tx_cot_rma_lm=lm(Value~rma_planted, tx_cot_rma_lr)
+anova(tx_cot_rma_lm)
+summary(tx_cot_rma_lm)
+ggplot(data=tx_cot_rma_lr, aes(rma_planted, Value))+geom_point()
+```
+
+Georgia - Cotton
+```{r}
+#subset the dataset to include only information on Illoinis and Corn 
+ga_rma_cot_2016=subset(raw_rma_2016, `State Code`=="13" & `Commodity Code`=="21")
+#take sum of every county 
+ga_cot_rma_sum<-ga_rma_cot_2016%>% 
+  group_by(`County Code`) %>%
+  summarise_at(vars(`Net Reporting Level Amount`), list(rma_planted=sum)) 
+#converting county code to character data to match the rest of the dataset 
+ga_cot_rma_sum$`County Code`= as.character(ga_cot_rma_sum$`County Code`)
+#merge the datasets using the previously made 2016 survey dataset
+ga_cot_rma_lr=full_join(ga_cot_rma_sum, ga_cot_clean, by=c("County Code"="county_code"))
+
+#linear model
+ga_cot_rma_lm=lm(Value~rma_planted, ga_cot_rma_lr)
+anova(ga_cot_rma_lm)
+summary(ga_cot_rma_lm)
+ggplot(data=ga_cot_rma_lr, aes(rma_planted, Value))+geom_point()
+```
+
+
