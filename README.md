@@ -4,7 +4,7 @@ Compiled datatsets of various crops' planted and harvested acres from the USDA-N
 
 ## Description
 
-The raw data was pulled from the United States Department of Agriculture - National Agricultural Statistics Service (NASS) in order to create datasets containing the harvested acres of corn from Iowa. 
+The raw data was pulled from the United States Department of Agriculture (USDA) - National Agricultural Statistics Service (NASS) in order to create datasets containing the harvested acres of corn from Iowa from 2006 to 2023. Both the USDA - Risk Management Agency (RMA) and USDA - Farm Service Agency (FSA) followed the same process of query and data cleaning. The goal of this project was to obtain regression models with possible clustering effects to train small area estimation model, so clustering was the desired pattern from the plots of NASS vs. FSA or RMA. A sample year (2022) was used to determine if these datsets were suitable for the later project, however the corn datasets were determined to show strong linear trends with no clustering, so later in the code I tested some samples from other states and crops (cotton and soybean). 
 
 ### Dependencies
 
